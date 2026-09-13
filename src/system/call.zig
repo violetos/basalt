@@ -155,30 +155,6 @@ inline fn userland_fn(code: Code, arg1: u64, arg2: u64, arg3: u64, arg4: u64, ar
                 .val2 = arg1_val,
             };
         },
-        .x86_64 => {
-            asm volatile (
-                \\ syscall
-                : [code] "+{rax}" (code_val),
-                  [arg1] "+{rdi}" (arg1_val),
-                : [arg2] "{rsi}" (arg2),
-                  [arg3] "{rdx}" (arg3),
-                  [arg4] "{r10}" (arg4),
-                  [arg5] "{r8}" (arg5),
-                  [arg6] "{r9}" (arg6),
-                  [arg7] "{r12}" (arg7),
-                : .{
-                  .memory = true,
-                  .cc = true,
-                  .rcx = true,
-                  .r11 = true,
-                  .r12 = true,
-                });
-
-            return .{
-                .args = @bitCast(code_val),
-                .val2 = arg1_val,
-            };
-        },
         else => unreachable,
     }
 

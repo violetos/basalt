@@ -61,7 +61,7 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.
         .abi = .none,
         .ofmt = .elf,
         .cpu_model = switch (options.target.arch) {
-            .x86_64 => .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+            .riscv64 => .{ .explicit = &rva23u_cpu_model },
             else => .{ .explicit = std.Target.Cpu.Model.baseline(options.target.arch, .{ .tag = .freestanding, .version_range = .{ .none = {} } }) },
         },
     };
@@ -112,3 +112,13 @@ pub fn addExecutable(b: *std.Build, options: ExecutableOptions) *std.Build.Step.
 
     return exe;
 }
+
+// --- //
+
+const rva23u_cpu_model: std.Target.Cpu.Model = .{
+    .name = "baseline_rv64",
+    .llvm_name = "rva23u64",
+    .features = std.Target.riscv.featureSet(&[_]std.Target.riscv.Feature{
+        .rva23u64,
+    }),
+};

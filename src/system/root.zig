@@ -27,8 +27,6 @@ pub const task = @import("task.zig");
 pub const call_conv: std.builtin.CallingConvention = switch (builtin.cpu.arch) {
     .aarch64 => .{ .aarch64_aapcs = .{} },
     .riscv64 => .{ .riscv64_lp64 = .{} },
-    // The kernel don't and will never support the redzone. So it has to be disabled.
-    .x86_64 => .{ .x86_64_sysv = .{} },
     else => unreachable,
 };
 
