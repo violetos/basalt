@@ -1,0 +1,9 @@
+**/.zig-cache
+**/zig-pkg
+**/zig-out
+
+/.vscode
+
+*.DS_Store
+*.log
+*.old
