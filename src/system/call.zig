@@ -23,12 +23,13 @@ const basalt = @import("basalt");
 
 // --- system/call.zig --- //
 
-pub const MAX_CODE = @intFromEnum(Code.timer_sequential) + 1; // keep in sync with the biggest syscall code.
 pub const Code = enum(u64) {
     null = 0x00,
 
     mem_map = 0x10,
     mem_unmap = 0x11,
+    mem_edit = 0x12,
+    mem_share = 0x13,
 
     handler_set = 0x20,
     handler_exit = 0x21,
@@ -39,21 +40,25 @@ pub const Code = enum(u64) {
     task_yield = 0x41,
 
     future_create = 0x51,
-    future_resolve = 0x52,
-    future_await = 0x53,
+    future_bind = 0x52,
+    future_cmd = 0x53,
+    future_gate = 0x54,
 
-    prism_create = 0x60,
-    prism_destroy = 0x61,
-    prism_consume = 0x62,
-    prism_bind = 0x63,
+    vector_create = 0x60,
+    vector_destroy = 0x61,
+    vector_bind = 0x62,
+    vector_line = 0x63,
+    vector_consume = 0x64,
 
-    facet_create = 0x71,
-    facet_drop = 0x72,
-    facet_invoke = 0x73,
+    line_drop = 0x71,
+    line_invoke = 0x72,
 
     timer_single = 0x80,
     timer_sequential = 0x81,
 };
+
+// Keep in sync with the biggest syscall code.
+pub const MAX_CODE = @backingInt(Code.timer_sequential) + 1;
 
 pub const Error = error{
     UnknownCode,
@@ -65,24 +70,24 @@ pub const ErrorCode = enum(u16) {
     internal_failure = 1,
 
     pub fn toError(self: @This()) Error {
-        switch (self) {
-            .unknown_code => return Error.UnknownCode,
-            .internal_failure => return Error.InternalFailure,
-        }
+        return switch (self) {
+            .unknown_code => Error.UnknownCode,
+            .internal_failure => Error.InternalFailure,
+        };
     }
 };
 
 pub const ResultArgs = packed struct(u64) {
     is_success: bool, // bit 0
-    _reserved: u15 = 0, // bit 1-16
+    _reserved: u15 = 0, // bits 1-15
     value: packed union {
         err: packed struct(u48) {
-            error_code: ErrorCode = .unknown_code, // bit 16-31
-            _reserved: u32 = 0, // bit 32-63
+            error_code: ErrorCode = .unknown_code, // bits 16-31
+            _reserved: u32 = 0, // bits 32-63
         },
         success: packed struct(u48) {
-            val0: u16 = 0, // bit 16-31
-            val1: u32 = 0, // bit 32-63
+            val0: u16 = 0, // bits 16-31
+            val1: u32 = 0, // bits 32-63
         },
     },
 };
@@ -101,22 +106,39 @@ pub const ResultVals = struct {
 // --- //
 
 pub const KernelIndirectionTable = extern struct {
-    call_system: *const fn (code: Code, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, arg6: u64, arg7: u64) callconv(basalt.system.call_conv) FullResult,
+    call_system: *const fn (
+        code: Code,
+        arg1: u64,
+        arg2: u64,
+        arg3: u64,
+        arg4: u64,
+        arg5: u64,
+        arg6: u64,
+        arg7: u64,
+    ) callconv(basalt.system.call_conv) FullResult,
 };
 
-pub var kit: *const KernelIndirectionTable =
-    if (basalt.system.is_module) undefined else unreachable;
+pub var kit: *const KernelIndirectionTable = if (basalt.system.is_module) undefined else unreachable;
 
 // --- //
 
-inline fn userland_fn(code: Code, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64, arg6: u64, arg7: u64) FullResult {
-    var code_val: u64 = @intFromEnum(code);
+inline fn userland_fn(
+    code: Code,
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    arg6: u64,
+    arg7: u64,
+) FullResult {
+    var code_val: u64 = @backingInt(code);
     var arg1_val: u64 = arg1;
 
-    switch (builtin.cpu.arch) {
+    switch (builtin.target.cpu.arch) {
         .aarch64 => {
             asm volatile (
-                \\ svc #0
+                \\svc #0
                 : [code] "+{x0}" (code_val),
                   [arg1] "+{x1}" (arg1_val),
                 : [arg2] "{x2}" (arg2),
@@ -137,7 +159,7 @@ inline fn userland_fn(code: Code, arg1: u64, arg2: u64, arg3: u64, arg4: u64, ar
         },
         .riscv64 => {
             asm volatile (
-                \\ ecall
+                \\ecall
                 : [code] "+{a0}" (code_val),
                   [arg1] "+{a1}" (arg1_val),
                 : [arg2] "{a2}" (arg2),
@@ -157,15 +179,10 @@ inline fn userland_fn(code: Code, arg1: u64, arg2: u64, arg3: u64, arg4: u64, ar
         },
         else => unreachable,
     }
-
-    return .{
-        .args = code_val,
-        .val2 = arg1_val,
-    };
 }
 
 pub fn syscall(code: Code, args: anytype) Error!ResultVals {
-    const builded_args = comptime buildArgs(args);
+    const builded_args = buildArgs(args);
     const full_result: FullResult = if (basalt.system.is_module)
         @call(.auto, kit.call_system, .{code} ++ builded_args)
     else
@@ -199,25 +216,41 @@ inline fn validateArgsType(comptime T: type) void {
     switch (info) {
         .@"struct" => |s| {
             if (s.is_tuple) {
-                if (s.fields.len > 7) {
+                if (s.field_names.len > 7) {
                     @compileError("syscall tuple: at most 7 fields allowed");
+                }
+
+                inline for (s.field_names, s.field_types) |field_name, field_type| {
+                    if (@sizeOf(field_type) > 8) {
+                        @compileError(
+                            "syscall tuple field '" ++ field_name ++ "' exceeds 8 bytes",
+                        );
+                    }
                 }
             } else {
                 if (s.layout != .@"extern" and s.layout != .@"packed") {
                     @compileError("syscall struct must be 'packed' or 'extern'");
                 }
-                inline for (s.fields) |f| {
-                    if (!isArgName(f.name)) {
-                        @compileError("syscall invalid field '" ++ f.name ++ "': only arg1..arg7 are allowed");
+
+                inline for (s.field_names, s.field_types) |field_name, field_type| {
+                    if (!isArgName(field_name)) {
+                        @compileError(
+                            "syscall invalid field '" ++ field_name ++
+                                "': only arg1..arg7 are allowed",
+                        );
                     }
-                    if (@sizeOf(f.type) > 8) {
-                        @compileError("syscall field '" ++ f.name ++ "' exceeds 8 bytes");
+                    if (@sizeOf(field_type) > 8) {
+                        @compileError(
+                            "syscall field '" ++ field_name ++ "' exceeds 8 bytes",
+                        );
                     }
                 }
             }
         },
         .int => |i| {
-            if (i.bits > 64) @compileError("syscall integer too large (> 64 bits)");
+            if (i.bits > 64) {
+                @compileError("syscall integer too large (> 64 bits)");
+            }
         },
         else => @compileError("syscall unsupported args type: " ++ @typeName(T)),
     }
@@ -227,13 +260,13 @@ inline fn toU64(value: anytype) u64 {
     const T = @TypeOf(value);
     return switch (@typeInfo(T)) {
         .int => |i| blk: {
-            const U = std.meta.Int(.unsigned, i.bits);
+            const U = @Int(.unsigned, i.bits);
             break :blk @as(u64, @as(U, @bitCast(value)));
         },
         .bool => @intFromBool(value),
         .pointer => @intFromPtr(value),
         .float => |f| blk: {
-            const U = std.meta.Int(.unsigned, f.bits);
+            const U = @Int(.unsigned, f.bits);
             break :blk @as(u64, @as(U, @bitCast(value)));
         },
         else => blk: {
@@ -253,12 +286,12 @@ fn buildArgs(args: anytype) struct { u64, u64, u64, u64, u64, u64, u64 } {
     comptime switch (@typeInfo(T)) {
         .@"struct" => |s| {
             if (s.is_tuple) {
-                for (s.fields, 0..) |f, i| {
-                    result[i] = toU64(@field(args, f.name));
+                for (s.field_names, 0..) |field_name, i| {
+                    result[i] = toU64(@field(args, field_name));
                 }
             } else {
-                for (s.fields) |f| {
-                    result[argIndex(f.name)] = toU64(@field(args, f.name));
+                for (s.field_names) |field_name| {
+                    result[argIndex(field_name)] = toU64(@field(args, field_name));
                 }
             }
         },
@@ -266,14 +299,22 @@ fn buildArgs(args: anytype) struct { u64, u64, u64, u64, u64, u64, u64 } {
         else => unreachable,
     };
 
-    return .{ result[0], result[1], result[2], result[3], result[4], result[5], result[6] };
+    return .{
+        result[0],
+        result[1],
+        result[2],
+        result[3],
+        result[4],
+        result[5],
+        result[6],
+    };
 }
 
 // --- //
 
 pub const WaitMode = enum(u8) {
-    /// If real_time task .no_suspend otherwise .wait
-    /// Useful for agnostic library.
+    /// For a real-time task, use .no_suspend; otherwise, use .wait.
+    /// Useful for an agnostic library.
     auto = 0x00,
     no_suspend = 0x01,
     wait = 0x02,
