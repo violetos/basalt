@@ -106,6 +106,9 @@ pub const ResultVals = struct {
 // --- //
 
 pub const KernelIndirectionTable = extern struct {
+    major_version: u32,
+    minor_version: u32,
+
     call_system: *const fn (
         code: Code,
         arg1: u64,
