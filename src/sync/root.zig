@@ -18,8 +18,6 @@ const std = @import("std");
 
 // --- exports --- //
 
-pub const Facet = @import("Facet.zig");
 pub const Future = @import("Future.zig");
-pub const Prism = @import("Prism.zig");
 
 // --- sync/root.zig --- //
