@@ -184,12 +184,21 @@ inline fn userland_fn(
     }
 }
 
-pub fn syscall(code: Code, args: anytype) Error!ResultVals {
-    const builded_args = buildArgs(args);
+pub const SyscallArgs = struct {
+    arg1: u64 = 0,
+    arg2: u64 = 0,
+    arg3: u64 = 0,
+    arg4: u64 = 0,
+    arg5: u64 = 0,
+    arg6: u64 = 0,
+    arg7: u64 = 0,
+};
+
+pub fn syscall(code: Code, args: SyscallArgs) Error!ResultVals {
     const full_result: FullResult = if (basalt.system.is_module)
-        @call(.auto, kit.call_system, .{code} ++ builded_args)
+        @call(.auto, kit.call_system, .{code} ++ .{ args.arg1, args.arg2, args.arg3, args.arg4, args.arg5, args.arg6, args.arg7 })
     else
-        @call(.auto, userland_fn, .{code} ++ builded_args);
+        @call(.auto, userland_fn, .{code} ++ .{ args.arg1, args.arg2, args.arg3, args.arg4, args.arg5, args.arg6, args.arg7 });
 
     if (!full_result.args.is_success) {
         return full_result.args.value.err.error_code.toError();
@@ -199,117 +208,6 @@ pub fn syscall(code: Code, args: anytype) Error!ResultVals {
         .val0 = full_result.args.value.success.val0,
         .val1 = full_result.args.value.success.val1,
         .val2 = full_result.val2,
-    };
-}
-
-// --- //
-
-inline fn isArgName(name: []const u8) bool {
-    if (name.len != 4) return false;
-    if (!std.mem.eql(u8, name[0..3], "arg")) return false;
-    return name[3] >= '1' and name[3] <= '7';
-}
-
-inline fn argIndex(name: []const u8) usize {
-    return @as(usize, name[3] - '1');
-}
-
-inline fn validateArgsType(comptime T: type) void {
-    const info = @typeInfo(T);
-    switch (info) {
-        .@"struct" => |s| {
-            if (s.is_tuple) {
-                if (s.field_names.len > 7) {
-                    @compileError("syscall tuple: at most 7 fields allowed");
-                }
-
-                inline for (s.field_names, s.field_types) |field_name, field_type| {
-                    if (@sizeOf(field_type) > 8) {
-                        @compileError(
-                            "syscall tuple field '" ++ field_name ++ "' exceeds 8 bytes",
-                        );
-                    }
-                }
-            } else {
-                if (s.layout != .@"extern" and s.layout != .@"packed") {
-                    @compileError("syscall struct must be 'packed' or 'extern'");
-                }
-
-                inline for (s.field_names, s.field_types) |field_name, field_type| {
-                    if (!isArgName(field_name)) {
-                        @compileError(
-                            "syscall invalid field '" ++ field_name ++
-                                "': only arg1..arg7 are allowed",
-                        );
-                    }
-                    if (@sizeOf(field_type) > 8) {
-                        @compileError(
-                            "syscall field '" ++ field_name ++ "' exceeds 8 bytes",
-                        );
-                    }
-                }
-            }
-        },
-        .int => |i| {
-            if (i.bits > 64) {
-                @compileError("syscall integer too large (> 64 bits)");
-            }
-        },
-        else => @compileError("syscall unsupported args type: " ++ @typeName(T)),
-    }
-}
-
-inline fn toU64(value: anytype) u64 {
-    const T = @TypeOf(value);
-    return switch (@typeInfo(T)) {
-        .int => |i| blk: {
-            const U = @Int(.unsigned, i.bits);
-            break :blk @as(u64, @as(U, @bitCast(value)));
-        },
-        .bool => @intFromBool(value),
-        .pointer => @intFromPtr(value),
-        .float => |f| blk: {
-            const U = @Int(.unsigned, f.bits);
-            break :blk @as(u64, @as(U, @bitCast(value)));
-        },
-        else => blk: {
-            const size = @sizeOf(T);
-            var buf: [8]u8 = @splat(0);
-            @memcpy(buf[0..size], std.mem.asBytes(&value));
-            break :blk std.mem.readInt(u64, &buf, .little);
-        },
-    };
-}
-
-fn buildArgs(args: anytype) struct { u64, u64, u64, u64, u64, u64, u64 } {
-    const T = @TypeOf(args);
-    comptime validateArgsType(T);
-
-    var result: [7]u64 = @splat(0);
-    comptime switch (@typeInfo(T)) {
-        .@"struct" => |s| {
-            if (s.is_tuple) {
-                for (s.field_names, 0..) |field_name, i| {
-                    result[i] = toU64(@field(args, field_name));
-                }
-            } else {
-                for (s.field_names) |field_name| {
-                    result[argIndex(field_name)] = toU64(@field(args, field_name));
-                }
-            }
-        },
-        .int => result[0] = toU64(args),
-        else => unreachable,
-    };
-
-    return .{
-        result[0],
-        result[1],
-        result[2],
-        result[3],
-        result[4],
-        result[5],
-        result[6],
     };
 }
 
