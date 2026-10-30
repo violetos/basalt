@@ -2,10 +2,11 @@ ENTRY(_start)
 
 PHDRS
 {
-    rodata  PT_LOAD  FILEHDR  PHDRS  FLAGS((1 << 2)) ;
-    text    PT_LOAD                  FLAGS((1 << 0) | (1 << 2)) ;
-    data    PT_LOAD                  FLAGS((1 << 1) | (1 << 2)) ;
-    dynamic PT_DYNAMIC               FLAGS((1 << 2)) ;
+    rodata  PT_LOAD     FILEHDR  PHDRS  FLAGS(1 << 2);              /* R-- */
+    text    PT_LOAD                     FLAGS((1 << 0) | (1 << 2)); /* R-X */
+    data    PT_LOAD                     FLAGS((1 << 1) | (1 << 2)); /* RW- */
+    dynamic PT_DYNAMIC                  FLAGS(1 << 2);              /* R-- */
+    tls     PT_TLS                      FLAGS(1 << 2);              /* R-- */
 }
 
 SECTIONS
@@ -14,34 +15,62 @@ SECTIONS
 
     . += SIZEOF_HEADERS;
 
-    .rodata : {
+    .rodata : ALIGN(16) {
         *(.rodata .rodata.*)
+        *(.srodata .srodata.*)
     } :rodata
 
-    .dynamic : { 
-        *(.dynamic) 
+    .dynsym : ALIGN(8) { *(.dynsym) } :rodata
+    .dynstr : ALIGN(8) { *(.dynstr) } :rodata
+    .gnu.hash : ALIGN(8) { *(.gnu.hash) } :rodata
+    .hash : ALIGN(8) { *(.hash) } :rodata
+
+    .dynamic : ALIGN(8) {
+        *(.dynamic)
     } :rodata :dynamic
 
-    .rela.dyn : {
+    .rela.dyn : ALIGN(8) {
         *(.rela.dyn)
         *(.rela.*)
     } :rodata
 
+    .relr.dyn : ALIGN(8) {
+        *(.relr.dyn)
+    } :rodata
+
     . = ALIGN(CONSTANT(MAXPAGESIZE));
 
-    .text : {
+    .text : ALIGN(16) {
         *(.text .text.*)
+        *(.plt .plt.* .iplt)
     } :text
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
 
-    .data : {
+    .tdata : ALIGN(16) {
+        PROVIDE(__tdata_start = .);
+        *(.tdata .tdata.* .gnu.linkonce.td.*)
+        PROVIDE(__tdata_end = .);
+    } :data :tls
+
+    .tbss (NOLOAD) : ALIGN(16) {
+        PROVIDE(__tbss_start = .);
+        *(.tbss .tbss.* .gnu.linkonce.tb.*)
+        *(.tcommon)
+        PROVIDE(__tbss_end = .);
+    } :tls
+
+    .data : ALIGN(16) {
+        KEEP(*(.init_array .init_array.*))
+        KEEP(*(.fini_array .fini_array.*))
         *(.data .data.*)
+        *(.sdata .sdata.* .sdata2 .sdata2.*)
         *(.data.rel.ro .data.rel.ro.*)
-        *(.got)
+        *(.got .got.*)
     } :data
 
-    .bss : {
+    .bss (NOLOAD) : ALIGN(16) {
+        *(.sbss .sbss.* .scommon)
         *(.bss .bss.*)
         *(COMMON)
     } :data
@@ -49,8 +78,15 @@ SECTIONS
     . = ALIGN(CONSTANT(MAXPAGESIZE));
 
     /DISCARD/ : {
-        *(.eh_frame) *(.note .note.*) *(.comment) *(.interp)
-        *(.dynsym) *(.dynstr) *(.hash) *(.gnu.hash)
-        *(.got.plt)
+        *(.eh_frame .eh_frame.*)
+        *(.eh_frame_hdr)
+        *(.gcc_except_table .gcc_except_table.*)
+        *(.ARM.exidx .ARM.exidx.*)
+        *(.ARM.extab .ARM.extab.*)
+        *(.ARM.attributes)
+        *(.riscv.attributes)
+        *(.note .note.*)
+        *(.comment)
+        *(.interp)
     }
 }
