@@ -63,16 +63,20 @@ pub const MAX_CODE = @backingInt(Code.timer_sequential) + 1;
 pub const Error = error{
     UnknownSyscall,
     InternalFailure,
+    InvalidValue,
 };
 
 pub const ErrorCode = enum(u16) {
     unknown_syscall = 0,
     internal_failure = 1,
 
+    invalid_value = 2,
+
     pub fn toError(self: @This()) Error {
         return switch (self) {
             .unknown_syscall => Error.UnknownSyscall,
             .internal_failure => Error.InternalFailure,
+            .invalid_value => Error.InvalidValue,
         };
     }
 };
