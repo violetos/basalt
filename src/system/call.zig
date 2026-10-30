@@ -61,20 +61,31 @@ pub const Code = enum(u64) {
 pub const MAX_CODE = @backingInt(Code.timer_sequential) + 1;
 
 pub const Error = error{
-    UnknownCode,
+    UnknownSyscall,
     InternalFailure,
 };
 
 pub const ErrorCode = enum(u16) {
-    unknown_code = 0,
+    unknown_syscall = 0,
     internal_failure = 1,
 
     pub fn toError(self: @This()) Error {
         return switch (self) {
-            .unknown_code => Error.UnknownCode,
+            .unknown_syscall => Error.UnknownSyscall,
             .internal_failure => Error.InternalFailure,
         };
     }
+};
+
+pub const ErrorCause = enum(u3) {
+    unspecified = 0,
+    arg1 = 1,
+    arg2 = 2,
+    arg3 = 3,
+    arg4 = 4,
+    arg5 = 5,
+    arg6 = 6,
+    arg7 = 7,
 };
 
 pub const ResultArgs = packed struct(u64) {
@@ -82,8 +93,9 @@ pub const ResultArgs = packed struct(u64) {
     _reserved: u15 = 0, // bits 1-15
     value: packed union {
         err: packed struct(u48) {
-            error_code: ErrorCode = .unknown_code, // bits 16-31
-            _reserved: u32 = 0, // bits 32-63
+            error_code: ErrorCode, // bits 16-31
+            error_cause: ErrorCause, // bits 32-34
+            _reserved: u29 = 0, // bits 35-63
         },
         success: packed struct(u48) {
             val0: u16 = 0, // bits 16-31
