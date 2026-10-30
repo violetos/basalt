@@ -41,6 +41,9 @@ pub const QuantumDivisor = enum(u2) {
     double = 0b11,
 };
 
+const ns_per_uis = 1024;
+const ns_per_mis = 1024 * ns_per_uis;
+
 pub const Settings = packed struct(u64) {
     /// Represents the CPU index to which the task has strong affinity bias.
     ///
@@ -67,25 +70,33 @@ pub const Settings = packed struct(u64) {
     qt_div: QuantumDivisor,
     _padding: u52 = 0,
 
+    pub fn getGranularity(self: Settings) u64 {
+        return switch (self.priority) {
+            .realtime => 16 * ns_per_uis,
+            .reactive => 32 * ns_per_uis,
+            .normal, .background => 1 * ns_per_mis,
+        };
+    }
+
     pub fn getQuantum(self: Settings) u64 {
         return switch (self.priority) {
             .background => switch (self.qt_div) {
-                .full => 20 * std.time.ns_per_ms,
-                .quarter => 5 * std.time.ns_per_ms,
-                .half => 10 * std.time.ns_per_ms,
-                .double => 40 * std.time.ns_per_ms,
+                .full => 16 * ns_per_mis,
+                .quarter => 4 * ns_per_mis,
+                .half => 8 * ns_per_mis,
+                .double => 32 * ns_per_mis,
             },
             .normal => switch (self.qt_div) {
-                .full => 4 * std.time.ns_per_ms,
-                .quarter => 1 * std.time.ns_per_ms,
-                .half => 2 * std.time.ns_per_ms,
-                .double => 8 * std.time.ns_per_ms,
+                .full => 4 * ns_per_mis,
+                .quarter => 1 * ns_per_mis,
+                .half => 2 * ns_per_mis,
+                .double => 8 * ns_per_mis,
             },
             .reactive, .realtime => switch (self.qt_div) {
-                .full => 2 * std.time.ns_per_ms,
-                .quarter => 500 * std.time.ns_per_us,
-                .half => 1 * std.time.ns_per_ms,
-                .double => 4 * std.time.ns_per_ms,
+                .full => 2 * ns_per_mis,
+                .quarter => 512 * ns_per_uis,
+                .half => 1 * ns_per_mis,
+                .double => 4 * ns_per_mis,
             },
         };
     }
@@ -96,8 +107,8 @@ pub const Settings = packed struct(u64) {
         const base_delay: u64 = switch (self.priority) {
             .realtime => unreachable,
             .reactive => 0,
-            .normal => 2 * std.time.ns_per_ms,
-            .background => 20 * std.time.ns_per_ms,
+            .normal => 2 * ns_per_mis,
+            .background => 16 * ns_per_mis,
         };
 
         return base_delay + self.getQuantum();
