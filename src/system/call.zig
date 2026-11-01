@@ -39,10 +39,10 @@ pub const Code = enum(u64) {
     task_terminate = 0x40,
     task_yield = 0x41,
 
-    future_create = 0x51,
-    future_bind = 0x52,
-    future_cmd = 0x53,
-    future_gate = 0x54,
+    future_create = 0x50,
+    future_bind = 0x51,
+    future_cmd = 0x52,
+    future_gate = 0x53,
 
     vector_create = 0x60,
     vector_destroy = 0x61,
@@ -53,12 +53,11 @@ pub const Code = enum(u64) {
     line_drop = 0x71,
     line_invoke = 0x72,
 
-    timer_single = 0x80,
-    timer_sequential = 0x81,
+    timer_summon = 0x80,
 };
 
 // Keep in sync with the biggest syscall code.
-pub const MAX_CODE = @backingInt(Code.timer_sequential) + 1;
+pub const MAX_CODE = @backingInt(Code.timer_summon) + 1;
 
 pub const Error = error{
     UnknownSyscall,
